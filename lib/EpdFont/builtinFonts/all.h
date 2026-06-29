@@ -1,13 +1,5 @@
 #pragma once
 
-#include <builtinFonts/literata_5_bold.h>
-#include <builtinFonts/literata_5_bolditalic.h>
-#include <builtinFonts/literata_5_italic.h>
-#include <builtinFonts/literata_5_regular.h>
-#include <builtinFonts/literata_6_bold.h>
-#include <builtinFonts/literata_6_bolditalic.h>
-#include <builtinFonts/literata_6_italic.h>
-#include <builtinFonts/literata_6_regular.h>
 #include <builtinFonts/literata_8_bold.h>
 #include <builtinFonts/literata_8_bolditalic.h>
 #include <builtinFonts/literata_8_italic.h>

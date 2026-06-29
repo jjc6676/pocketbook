@@ -54,8 +54,8 @@ folio:
     captionId:        LITERATA_10_FONT_ID
     accentId:         LITERATA_10_FONT_ID
     bodyIdCompact:    LITERATA_8_FONT_ID
-    captionIdCompact: LITERATA_6_FONT_ID
-    accentIdCompact:  LITERATA_5_FONT_ID
+    captionIdCompact: LITERATA_8_FONT_ID
+    accentIdCompact:  LITERATA_8_FONT_ID
     bodyIdLarge:      LITERATA_12_FONT_ID
 
 # Theme-owned enums. Generator emits `enum class X : uint8_t { ... };`

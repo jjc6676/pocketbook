@@ -22,8 +22,8 @@ struct BuiltinFontEntry {
 
 constexpr BuiltinFontEntry kBuiltinFonts[] = {
     // Literata is the built-in serif at every size (reader serif + UI roles).
-    {"literata-5", LITERATA_5_FONT_ID},
-    {"literata-6", LITERATA_6_FONT_ID},
+    {"literata-5", LITERATA_8_FONT_ID},  // sizes 5/6 dropped to save flash — alias to 8
+    {"literata-6", LITERATA_8_FONT_ID},
     {"literata-8", LITERATA_8_FONT_ID},
     {"literata-10", LITERATA_10_FONT_ID},
     {"literata-12", LITERATA_12_FONT_ID},
@@ -33,8 +33,8 @@ constexpr BuiltinFontEntry kBuiltinFonts[] = {
     // Back-compat: themes authored before the NotoSerif->Literata swap reference
     // "notoserif-N"; alias them onto the matching Literata face so existing
     // .cptheme JSONs keep resolving.
-    {"notoserif-5", LITERATA_5_FONT_ID},
-    {"notoserif-6", LITERATA_6_FONT_ID},
+    {"notoserif-5", LITERATA_8_FONT_ID},
+    {"notoserif-6", LITERATA_8_FONT_ID},
     {"notoserif-8", LITERATA_8_FONT_ID},
     {"notoserif-10", LITERATA_10_FONT_ID},
     {"notoserif-12", LITERATA_12_FONT_ID},

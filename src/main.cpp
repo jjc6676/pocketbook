@@ -46,20 +46,10 @@ static unsigned long allowSleepAt = 0;
 
 // Fonts
 // Literata is the single built-in serif: the reader serif face plus the faces
-// the UI Title (14) / Body (10) / BodyLarge (12) / compact (5/6/8) roles
+// the UI Title (14) / Body (10) / BodyLarge (12) / compact (8) roles
 // resolve to (see UITheme::repointUiFonts and the Folio theme defaults).
-EpdFont literata5RegularFont(&literata_5_regular);
-EpdFont literata5BoldFont(&literata_5_bold);
-EpdFont literata5ItalicFont(&literata_5_italic);
-EpdFont literata5BoldItalicFont(&literata_5_bolditalic);
-EpdFontFamily literata5FontFamily(&literata5RegularFont, &literata5BoldFont, &literata5ItalicFont,
-                                  &literata5BoldItalicFont);
-EpdFont literata6RegularFont(&literata_6_regular);
-EpdFont literata6BoldFont(&literata_6_bold);
-EpdFont literata6ItalicFont(&literata_6_italic);
-EpdFont literata6BoldItalicFont(&literata_6_bolditalic);
-EpdFontFamily literata6FontFamily(&literata6RegularFont, &literata6BoldFont, &literata6ItalicFont,
-                                  &literata6BoldItalicFont);
+// Sizes 5 & 6 were dropped to reclaim flash; the compact UI roles (caption/
+// accent) now resolve to size 8 (see theme_schema.yaml + ThemeJsonParser).
 EpdFont literata8RegularFont(&literata_8_regular);
 EpdFont literata8BoldFont(&literata_8_bold);
 EpdFont literata8ItalicFont(&literata_8_italic);
@@ -306,8 +296,6 @@ void setupDisplayAndFonts(bool seamless = false) {
   }
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
-  renderer.insertFont(LITERATA_5_FONT_ID, literata5FontFamily);
-  renderer.insertFont(LITERATA_6_FONT_ID, literata6FontFamily);
   renderer.insertFont(LITERATA_8_FONT_ID, literata8FontFamily);
   renderer.insertFont(LITERATA_10_FONT_ID, literata10FontFamily);
   renderer.insertFont(LITERATA_12_FONT_ID, literata12FontFamily);
