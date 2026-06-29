@@ -1,12 +1,17 @@
-name: Compile Release
+name: Release
+
+# Tag a version (vX.Y.Z) to build and PUBLISH a GitHub Release with firmware.bin.
+# Use -rc suffixes (e.g. v0.2.0-rc1) for pre-releases you dogfood before promoting.
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
 
 jobs:
-  build-release:
+  release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to create the Release + upload assets
     steps:
       - uses: actions/checkout@v6
         with:
@@ -22,7 +27,8 @@ jobs:
           version: "latest"
           enable-cache: false
 
-      - name: Install PlatformIO Core
+      # Folio/PocketBook build on the pioarduino fork of PlatformIO Core, not upstream.
+      - name: Install PlatformIO Core (pioarduino)
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Cache PlatformIO packages
@@ -32,16 +38,40 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
 
-      - name: Build CrossPoint
+      # One ESP32-C3 binary covers both Xteink X3 and X4 (runtime-selected).
+      - name: Build PocketBook
         run: pio run -e gh_release
 
-      - name: Upload Artifacts
+      - name: Stage release assets + checksums
+        run: |
+          mkdir -p release
+          cp .pio/build/gh_release/firmware.bin   release/firmware.bin
+          cp .pio/build/gh_release/bootloader.bin release/bootloader.bin
+          cp .pio/build/gh_release/partitions.bin release/partitions.bin
+          cp .pio/build/gh_release/firmware.elf   release/firmware.elf
+          cp .pio/build/gh_release/firmware.map   release/firmware.map
+          ( cd release && sha256sum firmware.bin bootloader.bin partitions.bin > checksums.txt )
+
+      - name: Upload CI artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CrossPoint-${{ github.ref_name }}
-          path: |
-            .pio/build/gh_release/bootloader.bin
-            .pio/build/gh_release/firmware.bin
-            .pio/build/gh_release/firmware.elf
-            .pio/build/gh_release/firmware.map
-            .pio/build/gh_release/partitions.bin
+          name: PocketBook-${{ github.ref_name }}
+          path: release/
+
+      # Publishes the Release that the web flasher downloads and that OTA reads from
+      # api.github.com/repos/jjc6676/pocketbook/releases/latest. firmware.bin keeps a
+      # stable asset name so OTA can find it. -rc tags are marked pre-release (so
+      # releases/latest — and therefore OTA — only ever picks up promoted stable builds).
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PocketBook ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          files: |
+            release/firmware.bin
+            release/bootloader.bin
+            release/partitions.bin
+            release/firmware.elf
+            release/firmware.map
+            release/checksums.txt
