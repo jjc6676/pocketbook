@@ -416,7 +416,12 @@ def write_if_changed(path: str, content: str) -> bool:
 
 def main(schema_path: str | None = None, output_root: str | None = None) -> None:
     if schema_path is None:
-        script_dir = Path(__file__).resolve().parent
+        # PlatformIO execs pre: scripts without __file__; fall back to the project
+        # dir (mirrors build_html.py) so the SCons hook below actually emits output.
+        try:
+            script_dir = Path(__file__).resolve().parent
+        except NameError:
+            script_dir = Path(os.environ.get("PLATFORMIO_PROJECT_DIR") or os.getcwd()) / "scripts"
         schema_path = str(script_dir / "theme_schema.yaml")
     if output_root is None:
         output_root = str(Path(schema_path).resolve().parent.parent)
@@ -453,8 +458,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(args.schema, args.output_root)
 else:
+    # Imported by PlatformIO as a pre: extra_script. Only run under SCons (where
+    # Import is injected) — but don't let main()'s own exceptions be swallowed as
+    # if we weren't under SCons (that was hiding a __file__ NameError -> silent no-op).
+    _under_scons = True
     try:
         Import("env")  # type: ignore[name-defined]  # noqa: F821 — SCons global
-        main()
     except NameError:
-        pass
+        _under_scons = False
+    if _under_scons:
+        main()
