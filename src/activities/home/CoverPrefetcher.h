@@ -17,8 +17,9 @@ class GfxRenderer;
 // Single-page cover cache + async prefetch worker, lifted out of LibraryActivity.
 //
 // View-type-agnostic: it knows nothing about grids, rows, or LibraryBook. It owns
-// a fixed-capacity, arena-backed cache sized to ONE page of `perPage` thumbnails and
-// a FreeRTOS worker that decodes + pre-scales each cover off the render path. The
+// a fixed-capacity, arena-backed cache sized to a window of kKeepPages pages of
+// `perPage` thumbnails each, and a FreeRTOS worker that decodes + pre-scales each
+// cover off the render path. The
 // owner supplies a CoverResolver mapping a flat item index to a cover key; any
 // paginated view (cover grid, future list view) reuses this by supplying its own
 // resolver, perPage, and cover-box dimensions.
@@ -47,7 +48,7 @@ class CoverPrefetcher {
       : renderer_(renderer),
         perPage_(perPage),
         resolver_(std::move(resolver)),
-        pageCache_(perPage, 0) {}
+        pageCache_(static_cast<std::size_t>(perPage) * kKeepPages, 0) {}
 
   // Alloc scratch + grow the cover arena + spin up the worker. Deferred from
   // construction so the owner controls timing (after a cold index, when heap is tight).
@@ -111,12 +112,14 @@ class CoverPrefetcher {
   // the source thumb dims (THUMB_MAX_WIDTH × THUMB_HEIGHT). stride = (w + 7) / 8.
   static constexpr std::size_t MAX_COVER_RASTER_BYTES =
     ((LibraryIndex::THUMB_MAX_WIDTH + 7) / 8) * LibraryIndex::THUMB_HEIGHT;
-  // Cover-cache arena: one page of cover rasters + 25% for Arena per-block headers
-  // and intra-arena fragmentation. Computed from perPage_ in start() (the page is
-  // cleared/reloaded as a unit, so the free list coalesces; an over-budget raster
-  // just renders a placeholder — no crash).
+  // Keep {prev, cur, next} pages resident so back-and-forth scrolling renders from
+  // cache instead of re-decoding from SD. The cache holds kKeepPages * perPage covers.
+  static constexpr uint8_t kKeepPages = 3;
+  // Cover-cache arena: kKeepPages pages of cover rasters + 25% for Arena per-block
+  // headers and intra-arena fragmentation. Computed from perPage_ in start(); an
+  // over-budget raster just renders a placeholder — no crash.
   std::size_t coverArenaBytes() const {
-    return perPage_ * MAX_COVER_RASTER_BYTES * 5 / 4;
+    return static_cast<std::size_t>(perPage_) * MAX_COVER_RASTER_BYTES * kKeepPages * 5 / 4;
   }
   // Only one page is normally in flight, but a release mid-decode can enqueue a
   // second before the worker drains the first. Sentinel 0xFF = empty slot.

@@ -169,14 +169,16 @@ void CoverPrefetcher::cancelAll() {
 void CoverPrefetcher::loadPage(uint8_t page, uint8_t pageCount) {
   if (cacheLock_ == nullptr) return;
 
-  // Cancel any in-flight decode, swap the single-page working set to `page`, and arm
-  // the batch-done repaint. The caller paints immediately afterward — the cleared
-  // cache peek-misses into placeholders, then the worker's batch-done repaints with
-  // the now-resident real covers.
+  // Cancel any in-flight decode and enqueue `page`, then arm the batch-done repaint.
+  // We deliberately do NOT clear the cache: it holds a window of kKeepPages pages, so
+  // covers from a page we just left stay resident and revisiting renders straight from
+  // cache with no SD decode. The worker skips covers that are still cached, and
+  // BitmapCacheManager::set() FIFO-evicts the oldest slot when full, so the resident
+  // set naturally tracks the most recently visited pages. (A cover-box dimension change
+  // clears via setCoverBox, since cached rasters are pre-scaled to the old box.)
   cancelAll();
 
   xSemaphoreTake(cacheLock_, portMAX_DELAY);
-  pageCache_.clear();
   pendingRender_ =
     enqueueLocked(page, pageCount);  // false → empty page, no batch-done to await
   xSemaphoreTake(batchDone_, 0);     // drop any stale completion signal
@@ -187,6 +189,14 @@ bool CoverPrefetcher::setCoverBox(int w, int h) {
   if (w == coverBoxW_ && h == coverBoxH_) return false;
   coverBoxW_ = w;
   coverBoxH_ = h;
+  // Every cached raster is pre-scaled to the previous box, and the worker skips
+  // covers that are still cached — so without dropping them here they'd never
+  // re-scale to the new dimensions. Clear; the caller reloads the current page.
+  if (cacheLock_ != nullptr) {
+    xSemaphoreTake(cacheLock_, portMAX_DELAY);
+    pageCache_.clear();
+    xSemaphoreGive(cacheLock_);
+  }
   return true;
 }
 
