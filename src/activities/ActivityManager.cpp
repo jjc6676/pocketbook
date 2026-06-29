@@ -424,6 +424,16 @@ std::vector<MenuRegistryEntry> ActivityManager::getGlobalMenuBottomEntries() {
 
 // RenderLock
 
+// Cancellable, timed acquire for background workers (BookWarmer): a blocking
+// RenderLock would deadlock against the activity swap, which holds RenderLock while
+// it joins the worker (loop: exitActivity(lock) -> onExit -> BookWarmer::stop()).
+// Construct with RenderLock::Deferred{} (no acquire), then call until it returns true.
+bool RenderLock::tryAcquire(unsigned timeoutMs) {
+  if (isLocked) return true;
+  isLocked = (xSemaphoreTake(activityManager.renderingMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE);
+  return isLocked;
+}
+
 RenderLock::RenderLock() {
   xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
   isLocked = true;

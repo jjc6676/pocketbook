@@ -73,6 +73,9 @@ class LibraryGridView {
   bool isBackTileSelected() { return isBackTileIndex(gridHelper.currentIndex()); }
   // Entry index of the selected tile, or -1 for the back tile / empty slot.
   int selectedIndex() { return bookForGridIndex(gridHelper.currentIndex()); }
+  // True during a continuous Up/Down page flick. The warm-on-open settle gate uses
+  // this so a held jump through pages doesn't warm books the cursor only passed over.
+  bool isRapidJumping() const { return rapidJumping_; }
 
  private:
   // ---- Grid / tile layout ----

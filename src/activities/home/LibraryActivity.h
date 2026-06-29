@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "BookWarmer.h"
 #include "CrossPointSettings.h"
 #include "LibraryGridView.h"
 #include "activities/Activity.h"
@@ -16,6 +17,11 @@
 class LibraryActivity final : public Activity {
  private:
   LibraryGridView gridView_{renderer, mappedInput};
+
+  // Background warm-on-open: when the selection settles on a book, pre-builds its
+  // resume section cache so tapping to open is near-instant. Cancelled on tap and
+  // joined in onExit, so it's a Pareto improvement over a cold first-open.
+  BookWarmer bookWarmer_{renderer};
 
   // ---- Collections / menu -------------------------------------------------
   // Launch the collection-membership picker for the selected book. Returns true (close

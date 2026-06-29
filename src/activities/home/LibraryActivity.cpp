@@ -109,12 +109,18 @@ void LibraryActivity::onEnter() {
   );
 
   gridView_.onEnter(computeContentRect(), resolveSubset());
+  bookWarmer_.start();
   requestUpdate();
 }
 
 void LibraryActivity::onExit() {
   Activity::onExit();
 
+  // Cancel + JOIN the warm worker BEFORE the grid view and index tear down, so its
+  // heap is fully freed (and it can't read LIBRARY_INDEX / the renderer) before the
+  // reader's onEnter allocates. replaceActivity runs onExit before the new
+  // activity's onEnter, so this guarantees the reader gets full heap + a warm HIT.
+  bookWarmer_.stop();
   gridView_.onExit();
   LIBRARY_INDEX.unload();
 }
@@ -150,7 +156,22 @@ void LibraryActivity::loop() {
 
   // Up/Down (tap + hold) and Left/Right navigation live in the view; it reports whether
   // anything changed so we repaint.
-  if (gridView_.handleInput()) requestUpdate();
+  if (gridView_.handleInput()) {
+    requestUpdate();
+    // Any selection move re-arms the warm debounce — warming fires only once the
+    // cursor settles (below), not for tiles flicked past.
+    bookWarmer_.noteSelectionChanged(millis());
+  }
+
+  // Once the highlighted selection has settled, background-warm that book's resume
+  // section so the next tap-to-open is a cache hit.
+  if (bookWarmer_.shouldWarmNow(millis(), gridView_.isRapidJumping())) {
+    const int idx = gridView_.selectedIndex();
+    if (idx >= 0) {
+      const std::string path = LIBRARY_INDEX.getPath(idx);
+      if (!path.empty()) bookWarmer_.warm(path);
+    }
+  }
 }
 
 // ---- Selection --------------------------------------------------------------
@@ -166,6 +187,9 @@ void LibraryActivity::doSelect() {
 
   const std::string path = LIBRARY_INDEX.getPath(idx);
   if (path.empty()) return;
+  // Non-blocking cancel of any in-flight warm so the render task (which is about to
+  // build the section synchronously in the reader) gets an uncontended RenderLock.
+  bookWarmer_.cancelInFlight();
   LOG_DBG(LOG_TAG, "Opening book: %s", path.c_str());
   activityManager.goToReader(path);
 }
