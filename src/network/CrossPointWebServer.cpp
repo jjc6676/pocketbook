@@ -77,6 +77,32 @@ bool isProtectedItemName(const String& name) {
   }
   return false;
 }
+
+// Normalise an untrusted web path arg (collapsing '.'/'..') and reject any resolved
+// path that walks into a protected/hidden item in ANY segment — the same per-segment
+// check WebDAVHandler::isProtectedPath enforces. The HTTP file API must use it too, so
+// a '..' can't traverse into /.crosspoint (Wi-Fi/KOReader credentials, settings). The
+// old handlers checked only the LAST segment, so /books/../.crosspoint/wifi.json slipped
+// through. Fills `out` with the safe normalised path; returns false => caller rejects.
+bool resolveSafeWebPath(const String& raw, String& out) {
+  out = normalizeWebPath(raw);
+  int start = 0;
+  while (start < static_cast<int>(out.length())) {
+    if (out.charAt(start) == '/') {
+      start++;
+      continue;
+    }
+    int end = out.indexOf('/', start);
+    if (end == -1) end = out.length();
+    const String segment = out.substring(start, end);
+    if (segment.startsWith(".")) return false;
+    for (const auto* item : HIDDEN_ITEMS) {
+      if (segment.equals(item)) return false;
+    }
+    start = end + 1;
+  }
+  return true;
+}
 }  // namespace
 
 // File listing page template - now using generated headers:
@@ -493,25 +519,14 @@ void CrossPointWebServer::handleDownload() const {
     return;
   }
 
-  String itemPath = server->arg("path");
-  if (itemPath.isEmpty() || itemPath == "/") {
+  String itemPath;
+  if (!resolveSafeWebPath(server->arg("path"), itemPath)) {
+    server->send(403, "text/plain", "Cannot access protected path");
+    return;
+  }
+  if (itemPath == "/") {
     server->send(400, "text/plain", "Invalid path");
     return;
-  }
-  if (!itemPath.startsWith("/")) {
-    itemPath = "/" + itemPath;
-  }
-
-  const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-  if (itemName.startsWith(".")) {
-    server->send(403, "text/plain", "Cannot access system files");
-    return;
-  }
-  for (const auto* item : HIDDEN_ITEMS) {
-    if (itemName.equals(item)) {
-      server->send(403, "text/plain", "Cannot access protected items");
-      return;
-    }
   }
 
   if (!Storage.exists(itemPath.c_str())) {
@@ -1026,34 +1041,16 @@ void CrossPointWebServer::handleDelete() const {
       continue;
     }
 
-    // Ensure path starts with /
-    if (!itemPath.startsWith("/")) {
-      itemPath = "/" + itemPath;
-    }
-
-    // Security check: prevent deletion of protected items
-    const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-
-    // Hidden/system files are protected
-    if (itemName.startsWith(".")) {
-      failedItems += itemPath + " (hidden/system file); ";
+    // Normalise (collapse '..'/'.') and reject any segment that walks into a
+    // protected/hidden item. The old check only looked at the LAST segment, so
+    // /books/../.crosspoint/... traversed into protected config; this closes it.
+    String safePath;
+    if (!resolveSafeWebPath(itemPath, safePath)) {
+      failedItems += itemPath + " (protected/invalid path); ";
       allSuccess = false;
       continue;
     }
-
-    // Check against explicitly protected items
-    bool isProtected = false;
-    for (const auto* item : HIDDEN_ITEMS) {
-      if (itemName.equals(item)) {
-        isProtected = true;
-        break;
-      }
-    }
-    if (isProtected) {
-      failedItems += itemPath + " (protected file); ";
-      allSuccess = false;
-      continue;
-    }
+    itemPath = safePath;
 
     // Check if item exists
     if (!Storage.exists(itemPath.c_str())) {
