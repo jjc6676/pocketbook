@@ -1,3 +1,22 @@
-<svg width="162" height="180" viewBox="0 0 162 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M141.133 1.93774C150.102 -3.44192 161.517 3.01665 161.521 13.4749V166.526C161.517 176.984 150.102 183.442 141.133 178.063L80.7588 141.837L20.3867 178.063C11.4176 183.442 0.00328866 176.984 0 166.526V13.4749C0.00337257 3.01685 11.4176 -3.44137 20.3867 1.93774L80.7598 38.1614L141.133 1.93774ZM121.275 117.524L92.3848 134.864L147.281 167.811C148.277 168.408 149.542 167.685 149.545 166.526V100.567L121.275 117.524ZM14.2393 12.1897C13.2438 11.5924 11.979 12.3152 11.9756 13.4749V86.6125L74.7725 124.29V48.51L14.2393 12.1897Z" fill="black"/>
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- PocketBook mark: open book + bookmark, designed to read at 1-bit on e-ink -->
+  <!-- book base / cover edge -->
+  <polygon points="13,82 107,82 102,90 18,90" fill="black"/>
+  <!-- left + right pages (black outline) -->
+  <polygon points="60,44 17,38 13,82 60,86" fill="black"/>
+  <polygon points="60,44 103,38 107,82 60,86" fill="black"/>
+  <!-- white page surfaces -->
+  <polygon points="56,49 23,44 20,78 56,80" fill="white"/>
+  <polygon points="64,49 97,44 100,78 64,80" fill="white"/>
+  <!-- spine -->
+  <line x1="60" y1="44" x2="60" y2="86" stroke="black" stroke-width="3"/>
+  <!-- text lines -->
+  <g stroke="black" stroke-width="2">
+    <line x1="26" y1="53" x2="53" y2="55"/><line x1="26" y1="60" x2="53" y2="62"/>
+    <line x1="26" y1="67" x2="53" y2="69"/><line x1="26" y1="74" x2="53" y2="75"/>
+    <line x1="67" y1="55" x2="94" y2="53"/><line x1="67" y1="62" x2="94" y2="60"/>
+    <line x1="67" y1="69" x2="94" y2="67"/><line x1="67" y1="75" x2="94" y2="74"/>
+  </g>
+  <!-- bookmark ribbon -->
+  <polygon points="66,18 80,18 80,58 73,51 66,58" fill="black"/>
 </svg>
