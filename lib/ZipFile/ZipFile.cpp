@@ -378,7 +378,17 @@ uint8_t* ZipFile::readFileToMemory(const char* filename, size_t* size, const boo
 
   const auto deflatedDataSize = fileStat.compressedSize;
   const auto inflatedDataSize = fileStat.uncompressedSize;
-  const auto dataSize = trailingNullByte ? inflatedDataSize + 1 : inflatedDataSize;
+  // Guard against a forged/absurd uncompressed size from an untrusted ZIP: the
+  // `+ 1` must not wrap uint32 (0xFFFFFFFF -> malloc(0), then an OOB terminator
+  // write + a 4 GB inflate target), and we never hold a single member larger
+  // than the heap can take anyway. See security audit.
+  static constexpr uint32_t kMaxInMemoryEntry = 16u * 1024u * 1024u;  // 16 MB ceiling
+  if (inflatedDataSize > kMaxInMemoryEntry) {
+    LOG_ERR("ZIP", "Refusing oversize zip entry: %u bytes", inflatedDataSize);
+    return nullptr;
+  }
+  const size_t dataSize =
+      trailingNullByte ? static_cast<size_t>(inflatedDataSize) + 1u : static_cast<size_t>(inflatedDataSize);
   const auto data = static_cast<uint8_t*>(malloc(dataSize));
   if (data == nullptr) {
     LOG_ERR("ZIP", "Failed to allocate memory for output buffer (%zu bytes)", dataSize);

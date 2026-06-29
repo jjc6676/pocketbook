@@ -452,6 +452,32 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
     return false;
   }
 
+  // Reject (colorType, bitDepth) pairs the PNG spec does not allow. Without this,
+  // a forged IHDR (palette+16, RGB/RGBA/GA with sub-byte depth, or depth 0/3/5/..)
+  // drives a row-byte stride that mismatches the decoded data -> heap OOB read,
+  // and depth 0 yields a zero stride / divide-by-zero. See security audit.
+  bool validDepth;
+  switch (colorType) {
+    case PNG_COLOR_GRAYSCALE:
+      validDepth = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8 || bitDepth == 16);
+      break;
+    case PNG_COLOR_PALETTE:
+      validDepth = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8);
+      break;
+    case PNG_COLOR_RGB:
+    case PNG_COLOR_GRAYSCALE_ALPHA:
+    case PNG_COLOR_RGBA:
+      validDepth = (bitDepth == 8 || bitDepth == 16);
+      break;
+    default:
+      validDepth = false;  // unknown color type is rejected again in the switch below
+      break;
+  }
+  if (!validDepth) {
+    LOG_ERR("PNG", "Illegal bit depth %u for color type %u", bitDepth, colorType);
+    return false;
+  }
+
   // Calculate bytes per pixel and raw row bytes
   uint8_t bytesPerPixel;
   uint32_t rawRowBytes;
