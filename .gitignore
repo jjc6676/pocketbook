@@ -18,6 +18,11 @@ build
 **/.venv/
 *.local*
 
+# Packaged, versioned firmware bins (output of scripts/package_firmware.py)
+/dist/
+# Backup/patch files left by build steps (e.g. scripts/patch_jpegdec.py)
+*.orig
+
 assets/**/*.cpfont
 themes/**/fonts/*.cpfont
 
