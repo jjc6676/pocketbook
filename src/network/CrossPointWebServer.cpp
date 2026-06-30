@@ -103,6 +103,16 @@ bool resolveSafeWebPath(const String& raw, String& out) {
   }
   return true;
 }
+
+// A single upload filename component must not carry path separators or '..'
+// traversal, or be hidden — belt-and-suspenders with resolveSafeWebPath, since the
+// filename is appended to the (already-normalised) target directory.
+bool isSafeWebFileName(const String& name) {
+  if (name.isEmpty() || name.startsWith(".")) return false;
+  if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) return false;
+  if (name.indexOf("..") >= 0) return false;
+  return true;
+}
 }  // namespace
 
 // File listing page template - now using generated headers:
@@ -467,14 +477,11 @@ void CrossPointWebServer::handleFileListData() const {
   // Get current path from query string (default to root)
   String currentPath = "/";
   if (server->hasArg("path")) {
-    currentPath = server->arg("path");
-    // Ensure path starts with /
-    if (!currentPath.startsWith("/")) {
-      currentPath = "/" + currentPath;
-    }
-    // Remove trailing slash unless it's root
-    if (currentPath.length() > 1 && currentPath.endsWith("/")) {
-      currentPath = currentPath.substring(0, currentPath.length() - 1);
+    // Normalise + reject '..'/protected segments so the listing can't enumerate
+    // /.crosspoint (Wi-Fi/KOReader credentials) via traversal.
+    if (!resolveSafeWebPath(server->arg("path"), currentPath)) {
+      server->send(403, "text/plain", "Cannot access protected path");
+      return;
     }
   }
 
@@ -640,17 +647,21 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     // Note: We use query parameter instead of form data because multipart form
     // fields aren't available until after file upload completes
     if (server->hasArg("path")) {
-      state.path = server->arg("path");
-      // Ensure path starts with /
-      if (!state.path.startsWith("/")) {
-        state.path = "/" + state.path;
-      }
-      // Remove trailing slash unless it's root
-      if (state.path.length() > 1 && state.path.endsWith("/")) {
-        state.path = state.path.substring(0, state.path.length() - 1);
+      // Reject '..'/protected traversal in the upload target so an upload can't
+      // overwrite /.crosspoint config etc.
+      if (!resolveSafeWebPath(server->arg("path"), state.path)) {
+        state.error = "Cannot upload to protected path";
+        state.success = false;
+        return;
       }
     } else {
       state.path = "/";
+    }
+    // The filename is attacker-controlled; never let it carry separators or '..'.
+    if (!isSafeWebFileName(state.fileName)) {
+      state.error = "Invalid file name";
+      state.success = false;
+      return;
     }
 
     LOG_DBG("WEB", "[UPLOAD] START: %s to path: %s", state.fileName.c_str(), state.path.c_str());
@@ -1580,16 +1591,17 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
             return;
           }
           wsUploadSize = sizeToken.toInt();
-          wsUploadPath = msg.substring(secondColon + 1);
+          // Reject '..'/protected traversal + bad filename so a WS upload can't
+          // overwrite /.crosspoint config etc.
+          if (!resolveSafeWebPath(msg.substring(secondColon + 1), wsUploadPath) ||
+              !isSafeWebFileName(wsUploadFileName)) {
+            LOG_DBG("WS", "START rejected: unsafe path/filename");
+            wsServer->sendTXT(num, "ERROR:Invalid path");
+            return;
+          }
           wsUploadReceived = 0;
           wsLastProgressSent = 0;
           wsUploadStartTime = millis();
-
-          // Ensure path is valid
-          if (!wsUploadPath.startsWith("/")) wsUploadPath = "/" + wsUploadPath;
-          if (wsUploadPath.length() > 1 && wsUploadPath.endsWith("/")) {
-            wsUploadPath = wsUploadPath.substring(0, wsUploadPath.length() - 1);
-          }
 
           // Build file path
           String filePath = wsUploadPath;
