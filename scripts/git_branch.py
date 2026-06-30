@@ -63,6 +63,14 @@ def get_git_short_sha(project_dir):
     )
 
 
+def is_working_tree_dirty(project_dir):
+    # The version is stamped from HEAD's sha. If the tree has uncommitted changes
+    # that sha is misleading (it's the PREVIOUS commit), so a build made before
+    # committing would ship a boot screen claiming the wrong commit. Flag it.
+    out = run_git_value(project_dir, ['status', '--porcelain'], 'dirty check')
+    return bool(out) and out != 'unknown'
+
+
 def get_base_version(project_dir):
     ini_path = os.path.join(project_dir, 'platformio.ini')
     if not os.path.isfile(ini_path):
@@ -86,7 +94,8 @@ def inject_version(env):
     base_version = get_base_version(project_dir)
     branch = get_git_branch(project_dir)
     short_sha = get_git_short_sha(project_dir)
-    version_string = f'{base_version}-dev-{branch}-{short_sha}'
+    dirty = '-dirty' if is_working_tree_dirty(project_dir) else ''
+    version_string = f'{base_version}-dev-{branch}-{short_sha}{dirty}'
 
     env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
     print(f'CrossPoint build version: {version_string}')
