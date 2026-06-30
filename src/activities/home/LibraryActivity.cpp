@@ -158,8 +158,11 @@ void LibraryActivity::loop() {
   // anything changed so we repaint.
   if (gridView_.handleInput()) {
     requestUpdate();
-    // Any selection move re-arms the warm debounce — warming fires only once the
-    // cursor settles (below), not for tiles flicked past.
+    // Any selection move CANCELS an in-flight warm (so a build for the tile we just
+    // left aborts within a parse chunk instead of holding the render lock and
+    // stalling the UI) and re-arms the debounce — warming fires only once the cursor
+    // settles (below), not for tiles flicked past.
+    bookWarmer_.cancelInFlight();
     bookWarmer_.noteSelectionChanged(millis());
   }
 

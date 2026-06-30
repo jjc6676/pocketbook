@@ -1261,7 +1261,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 }
 
-bool ChapterHtmlSlimParser::parseAndBuildPages() {
+bool ChapterHtmlSlimParser::parseAndBuildPages(const std::function<bool()>& shouldCancel) {
   // Initialize block style stack with a root entry representing "no ancestor block elements".
   // The user's paragraph alignment is set as the default so child elements without explicit
   // text-align inherit it correctly through getCombinedBlockStyle.
@@ -1309,6 +1309,15 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   // Compute the time taken to parse and build pages
   const uint32_t chapterStartTime = millis();
   do {
+    // Cancellable: a background warm aborts here the moment the user acts, so it
+    // never holds the render lock through a whole chapter and stalls the UI. The
+    // caller (Section::createSectionFile) discards the partial file on a false return.
+    if (shouldCancel && shouldCancel()) {
+      LOG_DBG("EHP", "Section build cancelled");
+      destroyXmlParser(parser);
+      file.close();
+      return false;
+    }
     void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
     if (!buf) {
       LOG_ERR("EHP", "Couldn't allocate memory for buffer");

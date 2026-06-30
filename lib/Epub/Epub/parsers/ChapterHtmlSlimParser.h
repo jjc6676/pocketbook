@@ -142,7 +142,9 @@ class ChapterHtmlSlimParser {
         tocAnchors(std::move(tocAnchors)) {}
 
   ~ChapterHtmlSlimParser() = default;
-  bool parseAndBuildPages();
+  // shouldCancel (optional): polled between parse chunks so a background warm can
+  // abort the build the instant the user acts. Default nullptr = run to completion.
+  bool parseAndBuildPages(const std::function<bool()>& shouldCancel = nullptr);
   void addLineToPage(std::shared_ptr<TextBlock> line);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
 };

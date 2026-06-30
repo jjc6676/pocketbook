@@ -239,7 +239,8 @@ void BookWarmer::warmPath(const std::string& path) {
         SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
         SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
         viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-        SETTINGS.imageRendering, SETTINGS.focusReadingEnabled, []() {}
+        SETTINGS.imageRendering, SETTINGS.focusReadingEnabled, []() {},
+        [this]() { return cancel_ || shutdown_; }  // abort the build the instant the user acts
       );
     }
   }
