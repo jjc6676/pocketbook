@@ -22,6 +22,7 @@
 #include "activities/home/LibraryGridView.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "network/RollbackGuard.h"
 #include "components/icons/bookalt40.h"
 #include "components/icons/books40.h"
 #include "components/icons/search40.h"
@@ -95,6 +96,11 @@ void resetViewToAll() {
 
 void LibraryActivity::onEnter() {
   Activity::onEnter();
+
+  // Reaching Home means the full boot chain succeeded — confirm the running slot
+  // good so the never-brick A/B trial (if any) is cleared. Only Home and Reader
+  // confirm; a half-dead boot that lands on Boot/Crash/Message must never.
+  rollback_guard::confirmRunningSlotGood();
 
   // LIBRARY_INDEX is already populated by LibraryIndexingActivity, which runs first and
   // hands off to us (see ActivityManager::goHome). We're never entered cold.

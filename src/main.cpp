@@ -30,6 +30,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
+#include "network/RollbackGuard.h"
 #include "stores/progress/ProgressStore.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
@@ -342,6 +343,18 @@ void setup() {
 #endif
 
   HalSystem::begin();
+
+  // Never-brick A/B rollback. Runs as early as possible — before gpio/SD/display/
+  // WiFi — so a freshly flashed slot that hangs later in setup() still gets its
+  // boot-attempt counter incremented and committed. onBoot() increments + commits
+  // synchronously; on the (kMaxBootAttempts+1)th failed boot it rewrites otadata
+  // back to the previous confirmed-good slot and returns Reverted, in which case
+  // we restart immediately to come up on that slot. nvs_flash is already
+  // initialised before setup().
+  if (rollback_guard::onBoot() == rollback_guard::BootDecision::Reverted) {
+    LOG_ERR("MAIN", "Rollback: reverted to previous slot; restarting");
+    ESP.restart();
+  }
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
   // Bound the target range too — RTC_NOINIT memory is uninitialized on cold boot.

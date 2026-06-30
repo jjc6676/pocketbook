@@ -32,6 +32,15 @@ constexpr size_t kOtaSeqCrcLen = 4;
 // CRC32-LE over the 4-byte ota_seq, init UINT32_MAX. Matches IDF and web flasher.
 uint32_t computeSeqCrc(uint32_t seq);
 
+// Compute the ota_seq value switchTo() would write to select `dest`: the
+// smallest seq greater than the current active seq for which
+// (seq - 1) % NUM_OTA_PARTITIONS maps to dest's OTA index. switchTo() calls
+// this internally so callers (e.g. RollbackGuard::markPending) can record the
+// exact seq the switch will commit, with no risk of the math diverging.
+// Returns 0 if otadata is missing/unreadable or `dest` is not an OTA app
+// partition.
+uint32_t computeNextSeq(const esp_partition_t* dest);
+
 // Switch the bootloader's selected app partition to `dest` by writing a fresh
 // otadata entry into the inactive otadata slot. Bypasses esp_ota_set_boot_partition's
 // esp_image_verify call. The bytes in `dest` must already be a valid app image

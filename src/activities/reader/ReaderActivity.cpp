@@ -14,6 +14,7 @@
 #include "XtcReaderActivity.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
+#include "network/RollbackGuard.h"
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
 
@@ -111,6 +112,11 @@ void ReaderActivity::onGoToTxtReader(std::unique_ptr<Txt> txt) {
 
 void ReaderActivity::onEnter() {
   Activity::onEnter();
+
+  // Reaching the Reader means the full boot chain succeeded — confirm the
+  // running slot good so the never-brick A/B trial (if any) is cleared. Only
+  // Home and Reader confirm; a half-dead boot must never confirm itself.
+  rollback_guard::confirmRunningSlotGood();
 
   if (initialBookPath.empty()) {
     goToLibrary();  // Start from root when entering via Browse

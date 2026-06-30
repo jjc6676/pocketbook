@@ -11,15 +11,13 @@ uint32_t computeSeqCrc(uint32_t seq) {
   return esp_rom_crc32_le(UINT32_MAX, reinterpret_cast<const uint8_t*>(&seq), kOtaSeqCrcLen);
 }
 
-bool switchTo(const esp_partition_t* dest) {
-  if (!dest) return false;
+namespace {
 
-  const esp_partition_t* otadata =
-      esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, nullptr);
-  if (!otadata) {
-    LOG_ERR("BOOT", "otadata partition not found");
-    return false;
-  }
+// Read both otadata slots and resolve the currently-active one: valid CRC,
+// highest seq, ignoring INVALID/ABORTED. On success returns true and fills
+// `activeIdx` (0/1, or -1 if no slot is active — virgin otadata) and
+// `activeSeq`. Returns false only when otadata is missing/too-small/unreadable.
+bool readActiveSlot(const esp_partition_t* otadata, int& activeIdx, uint32_t& activeSeq) {
   if (otadata->size < 2 * SPI_FLASH_SEC_SIZE) {
     LOG_ERR("BOOT", "otadata too small: %u", static_cast<unsigned>(otadata->size));
     return false;
@@ -33,8 +31,8 @@ bool switchTo(const esp_partition_t* dest) {
   }
 
   // Pick the slot with valid CRC and highest seq, ignoring INVALID/ABORTED.
-  int activeIdx = -1;
-  uint32_t activeSeq = 0;
+  activeIdx = -1;
+  activeSeq = 0;
   for (int i = 0; i < 2; ++i) {
     if (slots[i].ota_seq == 0xFFFFFFFFu) continue;
     if (slots[i].crc != computeSeqCrc(slots[i].ota_seq)) continue;
@@ -44,20 +42,61 @@ bool switchTo(const esp_partition_t* dest) {
       activeSeq = slots[i].ota_seq;
     }
   }
-  LOG_INF("BOOT", "otadata: active slot=%d seq=%u", activeIdx, static_cast<unsigned>(activeSeq));
+  return true;
+}
 
+// Smallest seq > activeSeq whose (seq-1) % 2 selects dest's OTA index, given 2
+// OTA partitions (matches our partitions.csv with ota_0 + ota_1). Returns 0 if
+// dest is not an OTA app partition.
+uint32_t nextSeqFor(const esp_partition_t* dest, uint32_t activeSeq) {
   // ota_seq encoding: (seq - 1) % NUM_OTA_PARTITIONS picks the partition.
   const uint32_t destOtaIdx =
       static_cast<uint32_t>(dest->subtype) - static_cast<uint32_t>(ESP_PARTITION_SUBTYPE_APP_OTA_0);
   if (destOtaIdx > 15) {
     LOG_ERR("BOOT", "dest is not an OTA app partition (subtype=0x%02X)", dest->subtype);
+    return 0;
+  }
+
+  uint32_t newSeq = activeSeq + 1;
+  while (((newSeq - 1u) % 2u) != (destOtaIdx % 2u)) ++newSeq;
+  return newSeq;
+}
+
+}  // namespace
+
+uint32_t computeNextSeq(const esp_partition_t* dest) {
+  if (!dest) return 0;
+  const esp_partition_t* otadata =
+      esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, nullptr);
+  if (!otadata) {
+    LOG_ERR("BOOT", "otadata partition not found");
+    return 0;
+  }
+  int activeIdx = -1;
+  uint32_t activeSeq = 0;
+  if (!readActiveSlot(otadata, activeIdx, activeSeq)) return 0;
+  return nextSeqFor(dest, activeSeq);
+}
+
+bool switchTo(const esp_partition_t* dest) {
+  if (!dest) return false;
+
+  const esp_partition_t* otadata =
+      esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, nullptr);
+  if (!otadata) {
+    LOG_ERR("BOOT", "otadata partition not found");
     return false;
   }
 
-  // Find smallest seq > activeSeq such that (seq-1) % 2 == destOtaIdx,
-  // assuming 2 OTA partitions (matches our partitions.csv with ota_0 + ota_1).
-  uint32_t newSeq = activeSeq + 1;
-  while (((newSeq - 1u) % 2u) != (destOtaIdx % 2u)) ++newSeq;
+  int activeIdx = -1;
+  uint32_t activeSeq = 0;
+  if (!readActiveSlot(otadata, activeIdx, activeSeq)) return false;
+  LOG_INF("BOOT", "otadata: active slot=%d seq=%u", activeIdx, static_cast<unsigned>(activeSeq));
+
+  // Same seq math RollbackGuard::markPending records via computeNextSeq(), so
+  // the recorded trial seq always matches what we commit here.
+  const uint32_t newSeq = nextSeqFor(dest, activeSeq);
+  if (newSeq == 0) return false;  // dest is not an OTA app partition
 
   SelectEntry next = {};
   next.ota_seq = newSeq;

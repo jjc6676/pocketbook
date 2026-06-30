@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "OtaBootSwitch.h"
+#include "RollbackGuard.h"
 
 namespace firmware_flash {
 
@@ -300,6 +301,22 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
     delay(1);
   }
   file.close();
+
+  // Put the freshly-flashed slot on trial for the never-brick A/B rollback.
+  // ORDER IS LOAD-BEARING: write the NVS record BEFORE the otadata switch. If
+  // power is lost between the two, the next boot is still on the running slot,
+  // RollbackGuard::onBoot sees target != running and clears the stale record
+  // (no harm). Once switchTo lands, the trial begins as intended. Resolve prev
+  // via esp_ota_get_running_partition() — read-only, no image re-verification.
+  // computeNextSeq(dest) returns the exact seq switchTo() is about to commit, so
+  // the recorded trial seq never diverges from otadata.
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (running) {
+    rollback_guard::markPending(static_cast<uint8_t>(dest->subtype), static_cast<uint8_t>(running->subtype),
+                                ota_boot::computeNextSeq(dest));
+  } else {
+    LOG_ERR("FLASH", "running partition unknown; flashing without rollback trial");
+  }
 
   if (!ota_boot::switchTo(dest)) {
     LOG_ERR("FLASH", "otadata switch failed");

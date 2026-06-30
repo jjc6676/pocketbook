@@ -1,18 +1,23 @@
 #include "OtaUpdater.h"
 
+#include <HalStorage.h>
 #include <Logging.h>
 #include <ReleaseJsonParser.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
-#include <esp_https_ota.h>
-#include <esp_wifi.h>
+
+#include "FirmwareFlasher.h"
+#include "HttpDownloader.h"
 
 namespace {
 constexpr char latestReleaseUrl[] = "https://api.github.com/repos/jjc6676/pocketbook/releases/latest";
 
-esp_err_t http_client_set_header_cb(esp_http_client_handle_t http_client) {
-  return esp_http_client_set_header(http_client, "User-Agent", "PocketBook-ESP32-" CROSSPOINT_VERSION);
-}
+// Where the OTA firmware is staged on the SD card before flashing. The OTA path
+// now downloads to this file and hands it to the same verified flasher the SD
+// update UI uses (validateImageFile -> raw partition write -> ota_boot::switchTo),
+// instead of esp_https_ota (which skips our SHA256 gate and calls the forbidden
+// esp_ota_set_boot_partition that re-verifies our patched image).
+constexpr char kOtaStagePath[] = "/.crosspoint/ota_stage.bin";
 
 size_t totalBytesReceived = 0;
 
@@ -148,72 +153,55 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return UPDATE_OLDER_ERROR;
   }
 
-  esp_https_ota_handle_t ota_handle = NULL;
-  esp_err_t esp_err;
+  // Stage the firmware to the SD card, then flash it through the SAME verified
+  // writer the SD update UI uses. This unifies both update entry points on
+  // firmware_flash::flashFromSdPath, which runs the full image-integrity check
+  // (header / segment table / XOR checksum / SHA256 trailer) and writes otadata
+  // via ota_boot::switchTo — the only path X3/X4 patched images survive. As a
+  // side effect, RollbackGuard::markPending (inside flashFromSdPath) now also
+  // covers OTA updates for free.
 
-  esp_http_client_config_t client_config = {
-      .url = otaUrl.c_str(),
-      .timeout_ms = 15000,
-      // 4096 holds the github->CDN redirect headers (the 512 default truncates
-      // them); TX only carries our GET. Both are contiguous blocks contending
-      // with the TLS handshake on a tight internal arena, so keep them minimal.
-      .buffer_size = 4096,
-      .buffer_size_tx = 1024,
-      .skip_cert_common_name_check = true,
-      .crt_bundle_attach = esp_crt_bundle_attach,
-      .keep_alive_enable = true,
-  };
+  // A too-full card fails cleanly: downloadToFile below errors out and we never
+  // flash (the staged file is validated by flashFromSdPath). No pre-check needed.
+  Storage.mkdir("/.crosspoint");
 
-  esp_https_ota_config_t ota_config = {
-      .http_config = &client_config,
-      .http_client_init_cb = http_client_set_header_cb,
-  };
-
-  /* For better timing and connectivity, we disable power saving for WiFi */
-  esp_wifi_set_ps(WIFI_PS_NONE);
-
-  esp_err = esp_https_ota_begin(&ota_config, &ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_DBG("OTA", "HTTP OTA Begin Failed: %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
-  }
-
+  // Download with the same whole-percent progress throttle the old path used:
+  // the render task's framebuffer work contends with TLS on a tight internal
+  // arena, and e-ink can't repaint faster than a percent tick anyway.
+  totalSize = otaSize;
+  processedSize = 0;
   int lastReportedPct = -1;
-  do {
-    esp_err = esp_https_ota_perform(ota_handle);
-    processedSize = esp_https_ota_get_image_len_read(ota_handle);
-    // Fire the callback only on whole-percent change. Without this it fired
-    // every ~100ms perform iteration, waking the render task whose framebuffer
-    // work contends with TLS on the same internal arena. E-ink can't repaint
-    // faster than a percent tick anyway.
+  HttpDownloader::ProgressCallback progressCb = [&](size_t downloaded, size_t total) {
+    processedSize = downloaded;
+    if (total > 0) totalSize = total;
     if (onProgress && totalSize > 0) {
-      const int pct = static_cast<int>(static_cast<uint64_t>(processedSize) * 100 / totalSize);
+      const int pct = static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / totalSize);
       if (pct != lastReportedPct) {
         lastReportedPct = pct;
         onProgress(ctx);
       }
     }
-    delay(100);  // TODO: should we replace this with something better?
-  } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+  };
 
-  /* Return back to default power saving for WiFi in case of failing */
-  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
+  const HttpDownloader::DownloadError dlErr = HttpDownloader::downloadToFile(otaUrl, kOtaStagePath, progressCb);
+  if (dlErr != HttpDownloader::OK) {
+    LOG_ERR("OTA", "download failed: %d", static_cast<int>(dlErr));
+    Storage.remove(kOtaStagePath);
     return HTTP_ERROR;
   }
 
-  if (!esp_https_ota_is_complete_data_received(ota_handle)) {
-    LOG_ERR("OTA", "esp_https_ota_is_complete_data_received Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
-    return INTERNAL_UPDATE_ERROR;
-  }
+  // alreadyValidated=false: let flashFromSdPath run its full integrity pass on
+  // the freshly downloaded image before it touches otadata.
+  const firmware_flash::Result flashRes =
+      firmware_flash::flashFromSdPath(kOtaStagePath, nullptr, nullptr, /*alreadyValidated=*/false);
 
-  esp_err = esp_https_ota_finish(ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_finish Failed: %s", esp_err_to_name(esp_err));
+  // The staged copy is large; delete it whether the flash succeeded or not. The
+  // image already lives in the OTA partition on success, and a failed flash
+  // leaves nothing worth keeping.
+  Storage.remove(kOtaStagePath);
+
+  if (flashRes != firmware_flash::Result::OK) {
+    LOG_ERR("OTA", "flash failed: %s", firmware_flash::resultName(flashRes));
     return INTERNAL_UPDATE_ERROR;
   }
 
